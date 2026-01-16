@@ -1,0 +1,136 @@
+name: PROD - Subscription Vending
+
+on:
+  push:
+      branches:
+        - main
+      paths:
+        - 'az-platform-infra/az-Sub-Vending/sub-vending.bicepparam'
+        - 'az-platform-infra/az-Sub-Vending/rg-deploy.bicepparam'
+        - '.github/workflows/PROD-az-sub-vending.yml'
+
+permissions:
+  id-token: write  # Required for requesting the JWT
+  contents: read   # Required for actions/checkout
+
+env:
+  DEPLOYMENT_SCOPE: 'mg-wel-woodside'
+  LOCATION: 'australiaeast'
+  SUBSCRIPTION_DEPLOY_TEMPLATE: 'az-platform-infra/az-Sub-Vending/sub-vending.bicep'
+  SUBSCRIPTION_PARAM_TEMPLATE: 'az-platform-infra/az-Sub-Vending/sub-vending.bicepparam'
+  RESOURCE_DEPLOY_TEMPLATE: 'az-platform-infra/az-Sub-Vending/rg-deploy.bicep'
+  RESOURCE_PARAM_TEMPLATE: 'az-platform-infra/az-Sub-Vending/rg-deploy.bicepparam'
+  POLICY_ASSIGNMENT_TEMPLATE: 'az-platform-infra/az-Sub-Vending/policy-assign.bicep'
+  POLICY_PARAMETERS_TEMPLATE: 'az-platform-infra/az-Sub-Vending/policy-assign.bicepparam'
+jobs:
+  sub-vending:
+    name: Subscription Vending
+    runs-on: enc-builder
+    environment: prod-subscription-vending-owner
+
+    # env:
+    #   PARAM_FILE: azure-platform-core-infra/config-infrastructure/platform/subscriptions/dev.param.json
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Azure login
+        uses: azure/login@v1
+        with: 
+          client-id: ${{ secrets.AZURE_PROD_SUBVENDING_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_PROD_SUBVENDING_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      # create mg and subscription
+      - name: Create MG and Subscription
+        id: create_subs
+        run: |
+          echo "Starting subscription deployment..."
+
+          billingScope='/providers/Microsoft.Billing/billingAccounts/${{ secrets.AZURE_PROD_SUBVENDING_BILLING_ACCOUNT }}/billingProfiles/${{ secrets.AZURE_PROD_SUBVENDING_BILLING_PROFILE }}/invoiceSections/${{ secrets.AZURE_PROD_SUBVENDING_INVOICE_SECTION }}'
+
+          OUTPUTS=$(az deployment mg create \
+          --location ${{ env.LOCATION }} \
+          --management-group-id ${{ env.DEPLOYMENT_SCOPE }} \
+          --template-file ${{ env.SUBSCRIPTION_DEPLOY_TEMPLATE }} \
+          --parameters ${{ env.SUBSCRIPTION_PARAM_TEMPLATE }} \
+          --parameters billingScope=$billingScope \
+          --query properties.outputs)
+
+          deploymentMessage=$(echo $OUTPUTS | jq -r '.deploymentMessage.value | @json')
+
+          echo "✅ Deployment message: $deploymentMessage"
+
+          # Extract output values
+          mgName=$(echo $OUTPUTS | jq -r '.managementGroupName.value')
+          subscriptionIds=$(echo $OUTPUTS | jq -c '.subscriptionIds.value | @json')
+          subscriptionIdentifier=$(echo $OUTPUTS | jq -r '.subscriptionIdentifier.value')
+          location=$(echo $OUTPUTS | jq -r '.location.value')
+          environments=$(echo $OUTPUTS | jq -c '.environments.value | @json')
+          # roleAssignments=$(echo $OUTPUTS | jq -c '.roleAssignments.value | @json')
+
+          # Write outputs for use in later steps
+          {
+            echo "mgName=$mgName"
+            echo "subids=$subscriptionIds"
+            echo "subscriptionIdentifier=$subscriptionIdentifier"
+            echo "location=$location"
+            echo "environments=$environments"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "✅ Output parameters:"
+          echo "  mgName: $mgName"
+          echo "  subscriptionIds: $subscriptionIds"
+          echo "  subscriptionIdentifier: $subscriptionIdentifier"
+          echo "  location: $location"
+          echo "  environments: $environments"
+          # echo "  roleAssignments: $roleAssignments"
+
+      # create a resource group, vnet and vnet hub connection
+      - name: create resources and role assignments
+        run: |
+          echo "Creating resource group, vnet, vnet-hub connection and AD group role assignment in the new subscriptions..."
+
+          OUTPUTS=$(az deployment sub create \
+          --location ${{ env.LOCATION }} \
+          --template-file ${{ env.RESOURCE_DEPLOY_TEMPLATE }} \
+          --parameters ${{ env.RESOURCE_PARAM_TEMPLATE }} \
+          --parameters \
+            subscriptionIds=${{ steps.create_subs.outputs.subids }} \
+            subscriptionIdentifier='${{ steps.create_subs.outputs.subscriptionIdentifier }}' \
+            location='${{ steps.create_subs.outputs.location }}' \
+            environments=${{ steps.create_subs.outputs.environments }} \
+            vwanHubSubscriptionId='${{ secrets.AZURE_PROD_SUBVENDING_VWAN_SUBSCRIPTION_ID }}' \
+          --query properties.outputs)
+
+          deploymentMessage=$(echo $OUTPUTS | jq -r '.deploymentMessage.value | @json')
+
+          echo "✅ Deployment message: $deploymentMessage"
+
+      # Assign policy to the new subscriptions management group
+      - name: Assign policies to the management group
+        run: |
+          echo "Assigning policies to the new subscriptions management group..."
+
+          mgName='${{ steps.create_subs.outputs.mgName }}'
+
+          echo "Target Management Group Name: $mgName"
+
+          # mgId=$(az account management-group show --name "$mgName" --query id -o tsv)
+          # echo "Management Group ID: $mgId"
+
+          echo "waiting for 900 seconds to ensure MG is fully propagated..."
+          sleep 900
+
+          echo "Starting policy assignment deployment..."
+
+          az deployment mg create \
+          --management-group-id ${{ env.DEPLOYMENT_SCOPE }} \
+          --location ${{ env.LOCATION}} \
+          --template-file ${{ env.POLICY_ASSIGNMENT_TEMPLATE}} \
+          --parameters ${{ env.POLICY_PARAMETERS_TEMPLATE }} \
+          --parameters tgtManagementGroupScope='${{ steps.create_subs.outputs.mgName }}' \
+          --debug
+
+          echo "✅ Policy assignment deployment completed."
