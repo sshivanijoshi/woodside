@@ -1,0 +1,109 @@
+name: Deploy PROD - Az Policies
+
+on:
+   push:
+    branches:
+      - main
+    paths:
+        - 'az-platform-infra/az-Policy/SetDefinitions/**'
+        - 'az-platform-infra/az-Policy/policy-deploy.bicep'
+        - 'az-platform-infra/az-Policy/policy-deploy.bicepparam'
+        - 'az-platform-infra/az-Policy/exemption-deploy.bicep'
+        - 'az-platform-infra/az-Policy/exemption-deploy.bicepparam'
+        
+
+
+env:
+      TARGET_ENVIRONMENT: 'prod-governance'
+      DEPLOYMENT_SCOPE: 'a3299bba-ade6-4965-b011-bada8d1d9558'
+      LOCATION: 'australiaeast'
+      POLICY_DEPLOYMENT_TEMPLATE: 'az-platform-infra/az-Policy/policy-deploy.bicep'
+      POLICY_PARAMETERS_TEMPLATE: 'az-platform-infra/az-Policy/policy-deploy.bicepparam'
+      POLICY_EXEMPTIONS_TEMPLATE: 'az-platform-infra/az-Policy/exemption-deploy.bicep'
+      POLICY_EXEMPTION_PARAM_TEMPLATE: 'az-platform-infra/az-Policy/exemption-deploy.bicepparam'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate-bicep:
+    name: Validate Bicep Templates
+    runs-on: enc-builder
+    environment: prod-governance
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+
+      - name: Azure Login (OIDC/federated)
+        # This uses GitHub OIDC (no client secret). Make sure you have
+        # configured a federated credential for the app registration in Azure AD
+        # to trust this repository / workflow. See instructions in the PR comment.
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_PROD_RBAC_POLICY_CLIENT_ID}}
+          tenant-id: ${{ secrets.AZURE_PROD_RBAC_POLICY_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Output directory structure
+        run: |
+          echo "Directory structure:"
+          find .
+
+      - name: Perform What-If for policy deployment
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az --version
+            az bicep upgrade
+
+            az deployment mg create --what-if \
+              --management-group-id ${{ env.DEPLOYMENT_SCOPE }} \
+              --location ${{ env.LOCATION}} \
+              --template-file ${{ env.POLICY_DEPLOYMENT_TEMPLATE}} \
+              --parameters ${{ env.POLICY_PARAMETERS_TEMPLATE }}
+
+  deploy-policy:
+    name: Deploy Policy Definitions
+    needs: validate-bicep
+    runs-on: enc-builder
+    environment: prod-governance
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Check environment secrets presence
+        run: |
+          echo "Checking environment secrets (will show PRESENT or MISSING):"
+          if [ -z "${{ secrets.AZURE_PROD_RBAC_POLICY_CLIENT_ID}}" ]; then echo "MISSING: AZURE_PROD_RBAC_POLICY_CLIENT_ID"; else echo "PRESENT: AZURE_PROD_RBAC_POLICY_CLIENT_ID"; fi
+          if [ -z "${{ secrets.AZURE_PROD_RBAC_POLICY_TENANT_ID }}" ]; then echo "MISSING: AZURE_PROD_RBAC_POLICY_TENANT_ID"; else echo "PRESENT: AZURE_PROD_RBAC_POLICY_TENANT_ID"; fi
+
+
+
+      - name: Azure Login (OIDC/federated)
+        # This uses GitHub OIDC (no client secret). Make sure you have
+        # configured a federated credential for the app registration in Azure AD
+        # to trust this repository / workflow.
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_PROD_RBAC_POLICY_CLIENT_ID}}
+          tenant-id: ${{ secrets.AZURE_PROD_RBAC_POLICY_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Deploy Policies
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az --version
+            az bicep upgrade
+          
+            az deployment mg create \
+              --management-group-id ${{ env.DEPLOYMENT_SCOPE }} \
+              --location ${{ env.LOCATION}} \
+              --template-file ${{ env.POLICY_DEPLOYMENT_TEMPLATE}} \
+              --parameters ${{ env.POLICY_PARAMETERS_TEMPLATE }}
