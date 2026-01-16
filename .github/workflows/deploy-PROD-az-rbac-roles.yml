@@ -1,0 +1,206 @@
+name: Deploy PROD - RBAC roles 
+
+on:
+   push:
+    branches:
+      - main
+    paths:
+        - '.github/workflows/deploy-PROD-az-rbac-roles.yml'
+        - 'az-platform-infra/az-RBAC-roles/role-parameters-prod.json'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ROLE_PARAMETERS_FILE: az-platform-infra/az-RBAC-roles/role-parameters-prod.json
+  ROLES_DIRECTORY: az-platform-infra/az-RBAC-roles
+
+jobs:
+  deploy-rbac:
+    name: Deploy RBAC Role and Assignment
+    runs-on: enc-builder
+    environment: prod-governance  # GitHub Environment "PROD" to access PROD secrets
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Azure Login (PROD)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_PROD_RBAC_POLICY_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_PROD_RBAC_POLICY_TENANT_ID }}
+          # subscription-id: ${{ secrets.AZURE_PROD_RBAC_POLICY_SUBSCRIPTION_ID }}
+          allow-no-subscriptions: true
+
+      # -----------------------------
+      # STEP 1: Load parameters from parameters file
+      # -----------------------------
+      - name: Load parameters
+        id: load_params
+        run: |
+          echo "Reading parameters from parameters.json"
+          parentMgId=$(jq -r '.parentMgId' ${{ env.ROLE_PARAMETERS_FILE }})
+
+          roleFilesWithoutDataActions=$(jq -r '.Role_Files_Without_DataActions | join(" ")' ${{ env.ROLE_PARAMETERS_FILE }})
+
+          roleFilesWithDataActions=$(jq -r '.Role_Files_With_DataActions | join(" ")' ${{ env.ROLE_PARAMETERS_FILE }})
+
+          # Write outputs for use in later steps
+          {
+            echo "parentMgId=$parentMgId"
+            echo "roleFilesWithoutDataActions=$roleFilesWithoutDataActions"
+            echo "roleFilesWithDataActions=$roleFilesWithDataActions"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "✅ Loaded parameters:"
+          echo "  Management Group Id: $parentMgId"
+          echo "  Role Files Without DataActions: $roleFilesWithoutDataActions"
+          echo "  Role Files With DataActions: $roleFilesWithDataActions"
+
+      # -----------------------------
+      # STEP 2: Create roles without DataActions
+      # -----------------------------
+      - name: Create roles without DataActions
+        run: |
+          echo "Creating roles without DataActions..."
+          mgId="${{ steps.load_params.outputs.parentMgId }}"
+
+          for roleFile in ${{ steps.load_params.outputs.roleFilesWithoutDataActions }}; do
+            echo "Processing role file: $roleFile"
+
+            # Strip the .json extension and append -temp.json
+            tempFile="${roleFile%.json}-temp.json"
+
+            jq --arg mgid "$mgId" '.AssignableScopes = [$mgid]' "${{ env.ROLES_DIRECTORY }}/$roleFile" > $tempFile
+            
+            echo "Modified Role JSON:$roleFile"
+            cat $tempFile
+
+            if az role definition create --role-definition $tempFile; then
+              echo "✅ Role $roleFile created successfully"
+            elif az role definition update --role-definition $tempFile; then
+              echo "✅ Role $roleFile updated successfully"
+            else
+              echo "❌ Failed to create or update $roleFile"
+            fi
+          done
+
+      # -----------------------------
+      # STEP 3: Fetch management groups
+      # -----------------------------
+      - name: Fetch management group names
+        id: fetch_mgs
+        run: |
+          echo "Fetching management group names..."
+  
+          mgNames=$(az account management-group list --no-register --query "[].name" -o json)
+    
+          echo "✅ Management Groups found:"
+          echo "$mgNames" | jq .
+
+          # Safely export as output for next step
+          {
+            echo "mgNames<<EOF"
+            echo "$mgNames"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # # -----------------------------
+      # # STEP 4: Fetch subscriptions under each MG
+      # # -----------------------------
+      - name: Fetch subscriptions under each MG
+        id: fetch_mg_subs
+        run: |
+          subscriptionIds=()
+
+          echo "Getting subscriptions under management groups..."
+
+          # Read mg names output from previous step
+          mgNames='${{ steps.fetch_mgs.outputs.mgNames }}'
+
+          echo "Raw mgNames:$mgNames"
+
+          # Decode to ensure proper JSON array
+          cleanMgs=$(echo "$mgNames" | jq -r 'fromjson? // .')
+
+          echo "✅ Management Groups to process:"
+          echo "$cleanMgs" | jq .
+
+          # Loop through each management group name
+          for mg in $(echo "$cleanMgs" | jq -r '.[]'); do
+            echo "Fetching subscriptions under $mg..."
+      
+            subs=$(az account management-group subscription show-sub-under-mg \
+            --name "$mg" --query "[].join('', ['/subscriptions/', name])" -o tsv 2>/dev/null || true)
+
+            if [[ -z "$subs" ]]; then
+              echo "⚠️ No subscriptions under $mg"
+              continue
+            fi
+
+            while IFS= read -r sub; do
+            subscriptionIds+=("$sub")
+            done <<< "$subs"
+          done
+
+          # Deduplicate and sort
+          mapfile -t subscriptionIds < <(printf "%s\n" "${subscriptionIds[@]}" | sort -u)
+
+          unique_count=${#subscriptionIds[@]}
+          echo "✅ Total Subscriptions fetched: $unique_count"
+
+          echo "✅ Final list of subscription IDs:"
+          printf "%s\n" "${subscriptionIds[@]}"
+
+          # Convert to JSON array
+          subJson=$(printf "%s\n" "${subscriptionIds[@]}" | jq -R . | jq -s .)
+
+          echo "✅ Subscriptions JSON:"
+          echo "$subJson" | jq .
+
+          # Safely export JSON array as output
+          {
+            echo "subscriptionIds<<EOF"
+            echo "$subJson"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # -----------------------------
+      # STEP 5: Create roles with DataActions
+      # -----------------------------
+      - name: Create roles with DataActions
+        run: |
+          echo "Creating roles with DataActions..."
+
+          # Get subscription IDs from fetched MG subscriptions
+          subscriptionIds='${{ steps.fetch_mg_subs.outputs.subscriptionIds }}'
+
+          # 🔧 Decode safely to ensure it's proper JSON (not escaped string)
+          cleanSubs=$(echo "$subscriptionIds" | jq -r 'fromjson? // .')
+
+          echo "✅ Normalized subscription IDs JSON:"
+          echo "$cleanSubs" | jq .
+          
+          # Loop through each role file
+          for roleFile in ${{ steps.load_params.outputs.roleFilesWithDataActions }}; do
+            echo "Processing role file: $roleFile"
+
+            # Strip the .json extension and append -temp.json
+            tempFile="${roleFile%.json}-temp.json"
+            
+            # Inject into AssignableScopes in a role file         
+            jq --argjson scopes "$cleanSubs" '.AssignableScopes = $scopes' "${{ env.ROLES_DIRECTORY }}/$roleFile" > $tempFile
+            
+            echo "Modified Role JSON:$roleFile"
+            cat $tempFile
+
+            if az role definition create --role-definition $tempFile; then
+              echo "✅ Role $roleFile created successfully"
+            elif az role definition update --role-definition $tempFile; then
+              echo "✅ Role $roleFile updated successfully"
+            else
+              echo "❌ Failed to create or update $roleFile"
+            fi
+          done
