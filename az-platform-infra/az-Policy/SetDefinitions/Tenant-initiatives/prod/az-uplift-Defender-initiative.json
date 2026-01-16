@@ -1,0 +1,116 @@
+{
+  "name": "az-uplift-Def-initiative-root",
+  "properties": {
+    "displayName": "(azure-uplift-v01) Defender Initiative-root",
+    "description": "Initiative",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Custom"
+    },
+    "parameters": {},
+    "policyDefinitionGroups": [],
+    "policyDefinitions": [
+        {
+            "policyDefinitionReferenceId": "cosmosDb(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/cosmosDb(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "Container(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/Container(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "sqlDb(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/sqlDb(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "sqlServer(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/sqlServer(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "tpAiServices(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/tpAiServices(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "serversPlan(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/serversPlan(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "storage(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/storage(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "cspm(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/cspm(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "resourceManager(azure-uplift-v01)",
+            "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/a3299bba-ade6-4965-b011-bada8d1d9558/providers/Microsoft.Authorization/policyDefinitions/resourceManager(azure-uplift-v01)",
+            "parameters": {
+                "effect": {
+                    "value": "Audit"
+                }
+            },
+            "groupNames": []
+        },
+        {
+            "policyDefinitionReferenceId": "0a9fbe0d-c5c4-4da8-87d8-f4fd77338835",
+            "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/0a9fbe0d-c5c4-4da8-87d8-f4fd77338835",
+            "parameters": {
+                "effect": {
+                    "value": "AuditIfNotExists"
+                }
+            },
+            "groupNames": []
+        }
+    ]
+
+}
+  }
