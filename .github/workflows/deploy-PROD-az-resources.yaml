@@ -1,0 +1,107 @@
+name: Deploy PROD - Azure Resources
+#SCOPE Hardcode no
+# on:
+#   push:
+#     paths:
+#       - 'roles/definations/**'
+#       - '.github/workflows/test-rbac.yml'
+
+on:
+  workflow_dispatch: # Manual trigger with inputs
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-rbac:
+    name: Deploy RBAC Role and Assignment
+    runs-on: enc-builder
+    environment: prod-workload-contributor   # GitHub Environment
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Display Runner Info
+        run: |
+          echo "Runner OS: $RUNNER_OS"
+          echo "Runner Name: $RUNNER_NAME"
+          echo "Runner Temp Directory: $RUNNER_TEMP"
+          echo "Runner Workspace: $RUNNER_WORKSPACE"
+          echo "GitHub Workspace: $GITHUB_WORKSPACE"
+          echo "Shell: $SHELL"
+          echo "PATH: $PATH"
+          echo "Listing installed packages (apt)..."
+          if command -v apt >/dev/null 2>&1; then
+            apt list --installed | head -40
+          else
+            echo "apt not available"
+          fi
+      # Get full environment variables
+      - name: Print environment variables
+        run: env | sort
+
+      # Get runner public IP
+      - name: Get public IP
+        id: ip
+        run: echo "ip=$(curl -s https://api.ipify.org)" >> $GITHUB_OUTPUT
+
+      - name: Show the runner's public IP
+        run: echo "Runner IP is ${{ steps.ip.outputs.ip }}"
+
+      # Azure login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_PROD_RESOURCES_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_PROD_RESOURCES_TENANT_ID }}
+          #subscription-id: ${{ secrets.AZURE_PREPROD_SUBSCRIPTION_ID }}
+          allow-no-subscriptions: true
+
+      # Check Azure CLI and PowerShell details
+      - name: Check Azure CLI and PowerShell 
+        run: |
+          echo "Checking Azure CLI..."
+          if command -v az >/dev/null 2>&1; then
+            az version
+            az extension list
+            az --version
+          else
+            echo "Azure CLI not installed"
+          fi
+          echo "Checking PowerShell..."
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -Command '$PSVersionTable'
+          else
+            echo "PowerShell not installed"
+          fi
+      # Display Azure account info
+      - name: Display Azure account
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az account show
+
+
+      # # Deploy resource group using Bicep
+      # - name: Deploy resource group using Bicep
+      #   uses: azure/cli@v2
+      #   with:
+      #     azcliversion: latest
+      #     inlineScript: |
+      #       az deployment sub create \
+      #         --name preprod-test-rg-deployment \
+      #         --location australiaeast \
+      #         --template-file main.bicep \
+      #         --parameters resourceGroupName=preprod-test-rg location=australiaeast
+
+      # # Delete resource group
+      # - name: Delete Resource Group
+      #   uses: azure/cli@v2
+      #   with:
+      #     azcliversion: latest
+      #     inlineScript: |
+      #       echo "Deleting resource group: preprod-test-rg"
+      #       az group delete --name preprod-test-rg --yes --no-wait
